@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Countdown Receiver</title>
+
+  <!-- Cast Receiver SDK -->
+  <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: black;
+      font-family: Arial, sans-serif;
+      color: white;
+      overflow: hidden;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-size: cover;
+      background-position: center;
+      transition: background-image 0.5s ease;
+    }
+
+    #timer {
+      font-size: 15vw;
+      font-weight: bold;
+      text-shadow: 0 0 20px rgba(0,0,0,0.6);
+    }
+  </style>
+</head>
+
+<body>
+  <div id="timer">00:00</div>
+
+  <script>
+    const context = cast.framework.CastReceiverContext.getInstance();
+    const channel = context.getCastMessageBus(
+      'urn:x-cast:countdown.timer'
+    );
+
+    // ---- TIMER STATE ----
+    let state = {
+      remaining: 300,   // seconds
+      isRunning: false,
+      endTime: null
+    };
+
+    const timerEl = document.getElementById('timer');
+
+    // ---- UTILS ----
+    function formatTime(seconds) {
+      const m = Math.floor(seconds / 60);
+      const s = seconds % 60;
+      return `${m}:${s.toString().padStart(2, '0')}`;
+    }
+
+    function render() {
+      timerEl.textContent = formatTime(state.remaining);
+    }
+
+    function broadcastState() {
+      channel.broadcast({
+        type: 'stateUpdate',
+        state: {
+          remaining: state.remaining,
+          isRunning: state.isRunning
+        }
+      });
+    }
+
+    // ---- TIMER LOGIC ----
+    function startTimer() {
+      if (state.isRunning) return;
+      state.endTime = Date.now() + state.remaining * 1000;
+      state.isRunning = true;
+      broadcastState();
+    }
+
+    function stopTimer() {
+      if (!state.isRunning) return;
+      state.remaining = Math.max(
+        0,
+        Math.floor((state.endTime - Date.now()) / 1000)
+      );
+      state.isRunning = false;
+      state.endTime = null;
+      broadcastState();
+    }
+
+    function resetTimer() {
+      state.isRunning = false;
+      state.endTime = null;
+      render();
+      broadcastState();
+    }
+
+    function setTime(seconds) {
+      state.remaining = Math.max(0, seconds);
+      if (state.isRunning) {
+        state.endTime = Date.now() + state.remaining * 1000;
+      }
+      render();
+      broadcastState();
+    }
+
+    // ---- MESSAGE HANDLER ----
+    channel.onMessage = (event) => {
+      const msg = event.data;
+
+      switch (msg.type) {
+        case 'start':
+          startTimer();
+          break;
+
+        case 'stop':
+          stopTimer();
+          break;
+
+        case 'reset':
+          resetTimer();
+          break;
+
+        case 'setTime':
+          setTime(msg.seconds);
+          break;
+
+        case 'setBackground':
+          document.body.style.backgroundImage = `url(${msg.imageUrl})`;
+          break;
+
+        case 'requestState':
+          broadcastState();
+          break;
+      }
+    };
+
+    // ---- TICK LOOP ----
+    setInterval(() => {
+      if (!state.isRunning) return;
+
+      const remaining = Math.max(
+        0,
+        Math.floor((state.endTime - Date.now()) / 1000)
+      );
+
+      if (remaining !== state.remaining) {
+        state.remaining = remaining;
+        render();
+        broadcastState();
+      }
+
+      if (remaining === 0) {
+        state.isRunning = false;
+        state.endTime = null;
+      }
+    }, 250);
+
+    // ---- START RECEIVER ----
+    context.start();
+    render();
+  </script>
+</body>
+</html>
